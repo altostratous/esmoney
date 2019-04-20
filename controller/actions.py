@@ -1,8 +1,11 @@
+import json
 import os
 
 import config
 from datetime import datetime
 from time import sleep
+
+from model.xu_model import AgahXuModelRecord, XuModel
 from utils.asa import ASAClient
 from utils.tse import read_isin_data, get_all_isins
 
@@ -11,6 +14,7 @@ from utils.tse import read_isin_data, get_all_isins
 from datetime import timedelta
 
 
+# noinspection PyBroadException
 def collect_live_data(interval, duration, directory, *isin_list):
 
     start_time = datetime.now()
@@ -19,7 +23,10 @@ def collect_live_data(interval, duration, directory, *isin_list):
     while datetime.now() <= start_time + eval(duration):
         for isin in set(isin_list):
             opened_file = open(os.path.join(directory, isin), mode='a+', encoding='utf8')
-            print(client.get_data_from_isin(isin), file=opened_file)
+            try:
+                print(client.get_data_from_isin(isin), file=opened_file)
+            except:
+                print('exception occurred', file=opened_file)
             opened_file.close()
         sleep(eval(interval))
 
@@ -39,3 +46,18 @@ def find_most_significant_isins(start_date, count):
         aggregated_data.append((volume_sum, isin))
 
     print(*[isin_tuple[1] for isin_tuple in (list(reversed(sorted(aggregated_data)))[0:eval(count)])])
+
+
+def analyze_isin_with_xu_model(file_path, deviation_time, prediction_time):
+    deviation_time = eval(deviation_time)
+    prediction_time = eval(prediction_time)
+    opened_file = open(file_path, encoding='utf8')
+    previous_record = None
+    records = []
+    for line in opened_file:
+        line = line.replace('\n', '')
+        data = json.loads(line)
+        record = AgahXuModelRecord(data, previous_record)
+        records.append(record)
+        previous_record = record
+    XuModel(records).draw(deviation_time=deviation_time, prediction_time=prediction_time)

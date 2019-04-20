@@ -27,8 +27,8 @@ class ASAClient:
     def _get_json_from_url(self, url):
         response = self.session.get(url)
         data = json.loads(response.text)
-        data['Time'] = datetime.now()
-        return data
+        data['Time'] = str(datetime.now())
+        return json.dumps(data)
 
     def get_data_from_isin(self, isin):
         return self._get_json_from_url('https://online.agah.com/Watch/GetInstrumentInfo?isin={}'.format(isin))
