@@ -57,16 +57,16 @@ class AgahXuModelRecord(XuModelRecord):
 
 # noinspection PyPep8Naming
 class XuModel:
-    def __init__(self, xu_records, blur_size=21):
+    def __init__(self, xu_records, blur_size=20):
         super().__init__()
         self.xu_records = deepcopy(list(xu_records))
         Ab = XuModel.mean(blur_size, [record.Ab for record in self.xu_records])
         As = XuModel.mean(blur_size, [record.As for record in self.xu_records])
-        # base_price = self.xu_records[0].P
+        base_price = self.xu_records[0].P
         for i, record in enumerate(self.xu_records):
             record.As = As[i]
             record.Ab = Ab[i]
-            # record.P /= base_price
+            record.P /= base_price
         self.k, self.b1, self.b2, self.b3, self.b4, self.s1, self.s2 = self.learn()
 
     @property
@@ -99,18 +99,12 @@ class XuModel:
     def predict_next(self):
         last_record = self.xu_records[-1]
         lastT, lastP, lastAs, lastAb = last_record.t, last_record.P, last_record.As, last_record.Ab
+        k, b1, b2, b3, b4, s1, s2 = self.k, self.b1, self.b2, self.b3, self.b4, self.s1, self.s2
 
-        # the equations used here are kept from hand solving
-        x = self.k * self.s2 * lastP - self.b4 * lastP - lastAs * self.k
-        y = self.k * (self.b4 + self.b3 - 1)
-        z = self.k * (self.s1 + self.s2) - self.b4
-        xPrime = (self.b3 - 1) * lastP - self.k * lastAb + self.k * self.b2 * lastP
-        yPrime = - (self.b3 - 1 + self.k * self.b2)
-        zPrime = self.k * self.b1
         P = numpy.roots([
-            self.k * z + y * yPrime,
-            - (self.k * x + y * xPrime),
-            y * zPrime
+            b3 + b4 - 1 - k * (s1 + s2 + b2),
+            -k * (lastAs - lastAb) - lastP * (b3 + b4 - 1 - k * s2 - k * b2),
+            k * b1
         ])
 
         if len(P) <= 0:
@@ -118,8 +112,18 @@ class XuModel:
 
         P = P[numpy.argmin(numpy.abs(P - lastP))]
 
-        As = (x - z * P) / y
-        Ab = (self.k * As + P - lastP) / self.k
+        # Iran stock market regulation
+        if P > 1.05:
+            P = 1.05
+        if P < 0.95:
+            P = 0.95
+
+        Ab = ((b3 - 1) * (P - lastP) - k * lastAs - k * s1 * P - k * s2 * P + k * s2 * lastP) / (
+            -k * b4 + k * (b3 - 1)
+        )
+        As = Ab + (lastP - P) / k
+
+        Ab, As = max(0, Ab), max(0, As)
 
         return XuModelRecord(
             lastT + self.normal_time_delta,
@@ -135,12 +139,15 @@ class XuModel:
         As = [record.As for record in self.xu_records]
         P = [record.P for record in self.xu_records]
         prediction_model = None
+        prediction_start_index = None
         if deviation_time is not None:
             prediction_model = XuModel(
                 xu_records=filter(lambda record: record.t < self.xu_records[0].t + deviation_time, self.xu_records),
                 blur_size=1
             )
             while len(prediction_model.xu_records) < len(self.xu_records):
+                if prediction_start_index is None:
+                    prediction_start_index = len(prediction_model.xu_records) - 1
                 prediction_model.predict_next_and_extend()
                 if prediction_model.xu_records[-1].t > prediction_time + deviation_time + self.xu_records[0].t:
                     break
@@ -150,19 +157,19 @@ class XuModel:
         pyplot.title('P')
         if deviation_time is not None:
             pyplot.plot(predicted_t_axis, [record.P for record in prediction_model.xu_records])
-            pyplot.title('P\'')
+            pyplot.plot([t[prediction_start_index]], [self.xu_records[prediction_start_index].P], '*')
         pyplot.subplot(312)
         pyplot.plot(t, Ab)
         pyplot.title('Ab')
         if deviation_time is not None:
             pyplot.plot(predicted_t_axis, [record.Ab for record in prediction_model.xu_records])
-            pyplot.title('Ab\'')
+            pyplot.plot([t[prediction_start_index]], [self.xu_records[prediction_start_index].Ab], '*')
         pyplot.subplot(313)
         pyplot.plot(t, As)
         pyplot.title('As')
         if deviation_time is not None:
             pyplot.plot(predicted_t_axis, [record.As for record in prediction_model.xu_records])
-            pyplot.title('As\'')
+            pyplot.plot([t[prediction_start_index]], [self.xu_records[prediction_start_index].As], '*')
         pyplot.tight_layout()
         pyplot.show()
 
